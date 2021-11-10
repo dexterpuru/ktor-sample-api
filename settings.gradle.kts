@@ -1,0 +1,1 @@
+rootProject.name = "krot-http-api-serialize-exposed"
