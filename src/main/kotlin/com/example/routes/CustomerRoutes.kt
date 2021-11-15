@@ -6,16 +6,22 @@ import io.ktor.http.*
 import io.ktor.request.*
 import io.ktor.response.*
 import com.example.models.Customer
+import com.example.models.Customers
 import com.example.models.customerStorage
+import org.jetbrains.exposed.sql.deleteWhere
+import org.jetbrains.exposed.sql.insert
+import org.jetbrains.exposed.sql.select
+import org.jetbrains.exposed.sql.selectAll
+import org.jetbrains.exposed.sql.transactions.transaction
 
 fun Route.customerRouting() {
     route("/customer") {
+        println("[GET] - 'All Customers'")
         get {
-            if (customerStorage.isNotEmpty()) {
-                call.respond(customerStorage)
-            } else {
-                call.respondText("No customer found", status = HttpStatusCode.NotFound)
+            val customers = transaction {
+                Customers.selectAll().map { Customers.toCustomer(it) }
             }
+            call.respond(customers)
         }
         get("{id}") {
             val id = call.parameters["id"] ?: return@get call.respondText(
@@ -23,24 +29,36 @@ fun Route.customerRouting() {
                 status = HttpStatusCode.BadRequest
             )
 
-            val customer = customerStorage.find { it.id == id.toInt() } ?: return@get call.respondText(
-                "No customer with id: $id",
-                status = HttpStatusCode.NotFound
-            )
+            val customers = transaction {
+                Customers.select { Customers.id eq id.toInt() }.map{Customers.toCustomer(it)}
+            }
 
-            call.respond(customer)
+            call.respond(customers)
         }
         post {
             val customer = call.receive<Customer>()
-            customerStorage.add(customer)
-            call.respondText("Customer stored correctly", status = HttpStatusCode.Created)
+
+            transaction {
+                Customers.insert {
+                    it[Customers.id] = customer.id
+                    it[Customers.firstName] = customer.firstName
+                    it[Customers.lastName] = customer.lastName
+                    it[Customers.email] = customer.email
+                }
+            }
+            call.respond(customer)
         }
         delete("{id}") {
             val id = call.parameters["id"] ?: return@delete call.respond(HttpStatusCode.BadRequest)
-            if (customerStorage.removeIf{it.id == id.toInt()}) {
-                call.respondText("Customer Removed Correctly", status = HttpStatusCode.Accepted)
+
+            val customer = transaction {
+                Customers.deleteWhere { Customers.id eq id.toInt() }
+            }
+
+            if (customer != 0) {
+                call.respondText("Customer Removed Successfully", status = HttpStatusCode.Accepted)
             } else {
-                call.respondText("Not Found", status = HttpStatusCode.NotFound)
+                call.respondText("No customer found with id: $id", status = HttpStatusCode.NotFound)
             }
         }
     }
